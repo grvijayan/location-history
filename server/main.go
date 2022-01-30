@@ -7,6 +7,8 @@ import (
 	"net/http"
 )
 
+const HistoryServerListenAddr = ":8080"
+
 func main() {
 	router := mux.NewRouter()
 
@@ -15,11 +17,11 @@ func main() {
 	router.HandleFunc("/location/{order_id}", api.DeleteLocationData).Methods("DELETE")
 
 	server := &http.Server{
-		Addr:    ":8899",
+		Addr:    HistoryServerListenAddr,
 		Handler: router,
 	}
 	err := server.ListenAndServe()
 	if err != nil {
-		log.Fatalf("Error starting the server %v", err)
+		log.Fatalf("Error starting the server %v\n", err)
 	}
 }

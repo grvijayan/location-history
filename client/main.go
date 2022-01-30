@@ -32,6 +32,7 @@ func main() {
 			fmt.Println(err)
 		}
 	}(resp.Body)
+	fmt.Println(resp.Status)
 	body, err := ioutil.ReadAll(resp.Body)
-	fmt.Printf("Body : %s", body)
+	fmt.Printf("%s\n", string(body))
 }

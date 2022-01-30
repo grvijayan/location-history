@@ -2,42 +2,23 @@ package api
 
 import (
 	"encoding/json"
-	"fmt"
 	"github.com/gorilla/mux"
 	"io/ioutil"
 	"location-history/util"
+	"log"
 	"net/http"
-	"os"
+	"strconv"
 	"time"
 )
 
-// TODO: move to a config file
-var filename = "location-data/location_data.json"
-
-type locHistoryResp struct {
-	OrderId string    `json:"order_id"`
-	History []history `json:"history"`
-}
-
-type history struct {
-	Lat float64 `json:"lat"`
-	Lng float64 `json:"lng"`
-}
-
-type locationEntry struct {
-	OrderId   string
-	Lat       float64 `json:"lat"`
-	Lng       float64 `json:"lng"`
-	Timestamp time.Time
-}
-
 func AddLocationData(w http.ResponseWriter, r *http.Request) {
 	requestVars := mux.Vars(r)
-
+	// append location to the history only if order_id is available
 	if orderId, exist := requestVars["order_id"]; exist {
 		locationReq := util.AddLocationRequest{}
 		_ = json.NewDecoder(r.Body).Decode(&locationReq)
 
+		// create new location entry
 		loc := locationEntry{
 			OrderId:   orderId,
 			Lat:       locationReq.Lat,
@@ -45,98 +26,99 @@ func AddLocationData(w http.ResponseWriter, r *http.Request) {
 			Timestamp: time.Now(),
 		}
 
-		prevLocData, err := getPrevLocHistory(filename)
+		prevLocEntries, _, _ := getPreviousLocationData()
 
-		var prevLocEntries []locationEntry
-
-		err = json.Unmarshal(prevLocData, &prevLocEntries)
-		if err != nil {
-			fmt.Println(err)
-		}
-
+		// write the updated location history to the json file
 		prevLocEntries = append(prevLocEntries, loc)
-
 		updatedLocHistory, _ := json.Marshal(prevLocEntries)
-		fmt.Println(string(updatedLocHistory))
-
-		err = ioutil.WriteFile(filename, updatedLocHistory, 0644)
+		err := ioutil.WriteFile(filename, updatedLocHistory, 0644)
 		if err != nil {
-			fmt.Println(err)
+			log.Printf("Error updating location history file: %v\n", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
 		}
 		w.WriteHeader(http.StatusOK)
 	} else {
-		fmt.Println("Bad request: Order Id not present")
 		w.WriteHeader(http.StatusBadRequest)
+		w.Header().Set("Content-Type", "application/text")
+		w.Write([]byte("Bad request: Invalid order_id"))
 	}
 
 }
 
 func GetLocationData(w http.ResponseWriter, r *http.Request) {
 	requestVars := mux.Vars(r)
-	if orderId, exist := requestVars["order_id"]; exist {
-		prevLocData, err := getPrevLocHistory(filename)
-		var prevLocEntries []locationEntry
-		err = json.Unmarshal(prevLocData, &prevLocEntries)
-		if err != nil {
-			fmt.Println(err)
-		}
+	prevLocEntries, prevOrderIds, err := getPreviousLocationData()
+	if err != nil {
+		log.Printf("Error reading location history file: %v\n", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	// fetch history only if order_id is available and present in the dataset
+	if orderId, exist := requestVars["order_id"]; exist && isValidOrderId(orderId, prevOrderIds) {
 
-		// TODO: return entries based on max value
-		//entriesToReturn, _ := strconv.Atoi(r.FormValue("max"))
-		//if entriesToReturn == 0 {
-		//	entriesToReturn = len(prevLocEntries)
-		//}
-
+		// create location history response
 		var locResp locHistoryResp
 		locResp.OrderId = orderId
 		var locHistory []history
-		for _, loc := range prevLocEntries {
-			if loc.OrderId == orderId {
-				fmt.Println(loc)
+		for _, locEntry := range prevLocEntries {
+			if locEntry.OrderId == orderId {
 				locHistory = append(locHistory, history{
-					Lat: loc.Lat,
-					Lng: loc.Lng,
+					Lat: locEntry.Lat,
+					Lng: locEntry.Lng,
 				})
 			}
 		}
 
-		locResp.History = locHistory
+		// return location history based on max value
+		max := r.FormValue("max")
+		if max == "" {
+			locResp.History = locHistory
+		} else {
+			entriesToReturn, _ := strconv.Atoi(r.FormValue("max"))
+			locResp.History = locHistory[:entriesToReturn]
+		}
 
+		// send location history response
 		w.WriteHeader(http.StatusOK)
 		err = json.NewEncoder(w).Encode(locResp)
 		if err != nil {
-			fmt.Println(err)
+			log.Printf("Error writing response %v\n", err)
 		}
 	} else {
-		fmt.Println("Bad request: Order Id not present")
 		w.WriteHeader(http.StatusBadRequest)
+		w.Header().Set("Content-Type", "application/text")
+		w.Write([]byte("Bad request: Invalid order_id"))
 	}
 }
 
 func DeleteLocationData(w http.ResponseWriter, r *http.Request) {
-	// to be implemented
-}
-
-func checkFile(filename string) error {
-	_, err := os.Stat(filename)
-	if os.IsNotExist(err) {
-		_, err := os.Create(filename)
-		if err != nil {
-			return err
+	requestVars := mux.Vars(r)
+	prevLocEntries, prevOrderIds, err := getPreviousLocationData()
+	if err != nil {
+		log.Printf("Error reading location history file: %v\n", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	// delete location history only if order_id is available and present in the dataset
+	if orderId, exist := requestVars["order_id"]; exist && isValidOrderId(orderId, prevOrderIds) {
+		var updatedLocEntries []locationEntry
+		for _, locEntry := range prevLocEntries {
+			if locEntry.OrderId != orderId {
+				updatedLocEntries = append(updatedLocEntries, locEntry)
+			}
 		}
+		updatedLocHistory, _ := json.Marshal(updatedLocEntries)
+		err = ioutil.WriteFile(filename, updatedLocHistory, 0644)
+		if err != nil {
+			log.Printf("Error updating location history file: %v\n", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	} else {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Header().Set("Content-Type", "application/text")
+		w.Write([]byte("Bad request: Invalid order_id"))
 	}
-	return nil
-}
-
-func getPrevLocHistory(filename string) ([]byte, error) {
-	err := checkFile(filename)
-	if err != nil {
-		fmt.Println(err)
-	}
-
-	file, err := ioutil.ReadFile(filename)
-	if err != nil {
-		fmt.Println(err)
-	}
-	return file, err
 }
