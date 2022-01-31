@@ -15,7 +15,8 @@ func main() {
 	reqBody, _ := json.Marshal(values)
 
 	c := http.Client{Timeout: time.Duration(1) * time.Second}
-	req, err := http.NewRequest("GET", "http://localhost:8899/location/abc123?max=2", bytes.NewBuffer(reqBody))
+	req, err := http.NewRequest("POST", "http://localhost:8080/location/abc123", bytes.NewBuffer(reqBody))
+	//req, err := http.NewRequest("GET", "http://localhost:8080/location/abc123?max=2", bytes.NewBuffer(reqBody))
 	if err != nil {
 		fmt.Printf("error %s", err)
 		return

@@ -46,6 +46,9 @@ func getPreviousLocationData() ([]locationEntry, []string, error) {
 // if not, creates a new location history file
 func checkFile(filename string) error {
 	_, err := os.Stat(filename)
+	if err := os.MkdirAll(filepath.Dir(filename), 0770); err != nil {
+		return err
+	}
 	if os.IsNotExist(err) {
 		_, err := os.Create(filename)
 		if err != nil {
